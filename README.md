@@ -43,7 +43,7 @@ These features work normally in both Debug and Release (non-AOT) builds. **Launc
 
 | Package | Version |
 |---|---|
-| [Aprillz.MewUI](https://www.nuget.org/packages/Aprillz.MewUI/) | 0.15.2 |
+| [Aprillz.MewUI](https://github.com/aprillz/MewUI) | 0.15.2 |
 | [Microsoft.Diagnostics.NETCore.Client](https://www.nuget.org/packages/Microsoft.Diagnostics.NETCore.Client/) | 0.2.532401 |
 | [Microsoft.Diagnostics.Tracing.TraceEvent](https://www.nuget.org/packages/Microsoft.Diagnostics.Tracing.TraceEvent/) | 3.1.20 |
 
