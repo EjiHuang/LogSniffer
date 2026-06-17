@@ -6,7 +6,9 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<SupportedOSPlatform>windows</SupportedOSPlatform>
 		<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+		<NoWarn>CA1416</NoWarn>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 	</PropertyGroup>

@@ -328,7 +328,7 @@ internal class Program
     /// </summary>
     private static void HookScrollBarTracking()
     {
-        if (FindVerticalScrollBar(_logTextBox) is ScrollBar vBar)
+        if (FindVerticalScrollBar(_logTextBox!) is ScrollBar vBar)
         {
             vBar.ValueChanged += value =>
             {
@@ -344,7 +344,7 @@ internal class Program
     /// </summary>
     private static bool IsTextBoxAtBottom()
     {
-        if (FindVerticalScrollBar(_logTextBox) is not ScrollBar vBar || !vBar.IsVisible)
+        if (FindVerticalScrollBar(_logTextBox!) is not ScrollBar vBar || !vBar.IsVisible)
             return true;
 
         const double tolerance = 0.5;
