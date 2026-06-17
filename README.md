@@ -5,7 +5,7 @@ A Windows desktop tool for viewing .NET runtime diagnostics, process output, and
 ## Features
 
 - **Attach to .NET processes** — stream runtime events (exceptions, GC, `ILogger`/`EventSource` traces) from both .NET Core and .NET Framework processes.
-- **Launch & capture** — run an executable and see its stdout/stderr live.
+- **Launch & capture** — run any executable (`.exe`, `.bat`, `.cmd`, etc.) and see its stdout/stderr live. Works with both .NET and non-.NET programs.
 - **Tail log files** — open a `.log` or `.txt` file and watch new lines appear in real time.
 - **Auto-scroll** — stays at the bottom as new content arrives; pauses when you scroll up.
 
