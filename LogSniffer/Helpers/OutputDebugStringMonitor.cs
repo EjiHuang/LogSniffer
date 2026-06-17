@@ -21,9 +21,7 @@ public sealed class OutputDebugStringMonitor : IDisposable
     private Task? _listenTask;
     private bool _disposed;
 
-    // ════════════════════════════════════════════════════════
-    // 原生 API
-    // ════════════════════════════════════════════════════════
+    #region Native API
 
     private const string DbgWinBufferReady = "DBWIN_BUFFER_READY";
     private const string DbgWinDataReady   = "DBWIN_DATA_READY";
@@ -61,6 +59,13 @@ public sealed class OutputDebugStringMonitor : IDisposable
     private const uint WAIT_TIMEOUT       = 0x00000102;
     private const uint INFINITE           = 0xFFFFFFFF;
 
+    #endregion
+
+    /// <summary>
+    /// 初始化 OutputDebugString 监听器。
+    /// </summary>
+    /// <param name="processId">目标进程 PID，仅输出该进程的调试信息。</param>
+    /// <param name="onOutput">输出回调（时间戳 + 消息）。</param>
     public OutputDebugStringMonitor(int processId, Action<DateTime, string> onOutput)
     {
         _processId = processId;
@@ -70,7 +75,7 @@ public sealed class OutputDebugStringMonitor : IDisposable
         _bufferReadyEvent = CreateEventW(IntPtr.Zero, false, false, DbgWinBufferReady);
         if (_bufferReadyEvent == IntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error());
-        _dataReadyEvent   = OpenEventW(SYNCHRONIZE, false, DbgWinDataReady);
+        _dataReadyEvent = OpenEventW(SYNCHRONIZE, false, DbgWinDataReady);
 
         _sharedBuffer = CreateFileMappingW(
             new IntPtr(-1), // INVALID_HANDLE_VALUE
@@ -78,6 +83,9 @@ public sealed class OutputDebugStringMonitor : IDisposable
             0, BufferSize, DbgWinBuffer);
     }
 
+    /// <summary>
+    /// 启动后台监听线程，开始轮询 DBWIN_BUFFER 共享内存。
+    /// </summary>
     public void Start()
     {
         if (_disposed)
@@ -91,20 +99,20 @@ public sealed class OutputDebugStringMonitor : IDisposable
             {
                 while (!_cts.IsCancellationRequested)
                 {
-                    // 通知全局缓冲区：我们准备好了
+                    // 通知全局缓冲区：已准备好读取
                     SetEvent(_bufferReadyEvent);
 
-                    // 等待数据
+                    // 等待数据到达
                     uint result = WaitForSingleObject(_dataReadyEvent, 100);
                     if (result == WAIT_TIMEOUT)
                         continue;
                     if (result != WAIT_OBJECT_0)
-                        break; // 出错或已取消
+                        break;
 
                     if (_cts.IsCancellationRequested)
                         break;
 
-                    // 从共享内存读取
+                    // 从共享内存读取 PID + 消息体
                     int pid  = Marshal.ReadInt32(bufferAddr);
                     int size = Marshal.ReadInt32(bufferAddr, 4);
 
@@ -124,6 +132,9 @@ public sealed class OutputDebugStringMonitor : IDisposable
         }, _cts.Token);
     }
 
+    /// <summary>
+    /// 释放所有原生资源（事件句柄、共享内存映射）。
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;

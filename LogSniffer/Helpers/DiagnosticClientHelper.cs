@@ -23,11 +23,17 @@ public sealed class DiagnosticClientHelper : IDisposable
     private OutputDebugStringMonitor? _odsMonitor;
     private bool _disposed;
 
+    /// <summary>
+    /// 是否正在监听诊断事件。
+    /// </summary>
     public bool IsListening { get; private set; }
 
-    /// <param name="processId">目标进程 PID</param>
-    /// <param name="runtime">运行时类型（决定用 EventPipe 还是 ETW）</param>
-    /// <param name="onOutput">输出回调（在后台线程调用）</param>
+    /// <summary>
+    /// 初始化诊断客户端。
+    /// </summary>
+    /// <param name="processId">目标进程 PID。</param>
+    /// <param name="runtime">运行时类型（决定用 EventPipe 还是 ETW）。</param>
+    /// <param name="onOutput">输出回调（在后台线程调用）。</param>
     public DiagnosticClientHelper(int processId, ProcessRuntime runtime, Action<string> onOutput)
     {
         _processId = processId;
@@ -35,6 +41,9 @@ public sealed class DiagnosticClientHelper : IDisposable
         _onOutput = onOutput ?? throw new ArgumentNullException(nameof(onOutput));
     }
 
+    /// <summary>
+    /// 根据进程运行时类型选择 EventPipe 或 ETW 路径开始监听。
+    /// </summary>
     public void StartListening()
     {
         if (_disposed)
@@ -48,22 +57,57 @@ public sealed class DiagnosticClientHelper : IDisposable
             StartListeningEtw();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // .NET Core：EventPipe 路径
-    // ════════════════════════════════════════════════════════════
+    /// <summary>
+    /// 停止监听，释放诊断会话。
+    /// </summary>
+    public void StopListening()
+    {
+        if (!IsListening)
+            return;
 
+        _cts.Cancel();
+
+        try { _eventPipeSession?.Stop(); } catch { }
+        try { _etwSession?.Stop(); } catch { }
+
+        _odsMonitor?.Dispose();
+        _odsMonitor = null;
+
+        _eventPipeSession?.Dispose();
+        _eventPipeSession = null;
+        _etwSession?.Dispose();
+        _etwSession = null;
+
+        IsListening = false;
+        _onOutput($"[Detached from PID {_processId}]\n");
+    }
+
+    /// <summary>
+    /// 释放所有资源。
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        StopListening();
+        _cts.Dispose();
+    }
+
+    #region EventPipe (.NET Core)
+
+    /// <summary>
+    /// 通过 EventPipe 附加到 .NET Core 进程，订阅运行时事件和 ILogger 日志。
+    /// Windows 下额外启动 OutputDebugString 监听。
+    /// </summary>
     private void StartListeningEventPipe()
     {
         var client = new DiagnosticsClient(_processId);
 
         var providers = new List<EventPipeProvider>
         {
-            // .NET 运行时事件（异常、GC 等所有关键字）
             new("Microsoft-Windows-DotNETRuntime",
                 System.Diagnostics.Tracing.EventLevel.LogAlways,
                 (long)ClrEventKeywords.All),
-
-            // Microsoft.Extensions.Logging EventSource 日志事件
             new("Microsoft-Extensions-Logging",
                 System.Diagnostics.Tracing.EventLevel.LogAlways,
                 -1),
@@ -113,29 +157,30 @@ public sealed class DiagnosticClientHelper : IDisposable
         }
     }
 
-    // ════════════════════════════════════════════════════════════
-    // .NET Framework：ETW 路径（参考 dnSpy 的做法）
-    // ════════════════════════════════════════════════════════════
+    #endregion
 
+    #region ETW (.NET Framework)
+
+    /// <summary>
+    /// 通过 ETW 实时会话附加到 .NET Framework 进程。
+    /// 在 NativeAOT 下不可用（COM Interop 依赖），会抛出 NotSupportedException。
+    /// </summary>
     private void StartListeningEtw()
     {
-        // NativeAOT 下 ETW COM 会话不可用
         if (!RuntimeFeature.IsDynamicCodeSupported)
         {
             throw new NotSupportedException(
                 ".NET Framework ETW monitoring is not supported in NativeAOT builds. " +
                 "Use regular self-contained publish for .NET Framework support.");
         }
-        // 唯一的 ETW 会话名（避免冲突）
+
         var sessionName = $"LogSniffer_Etw_{_processId}_{Guid.NewGuid():N}";
 
         try
         {
             _etwSession = new TraceEventSession(sessionName, TraceEventSessionOptions.Create);
 
-            // 启用 .NET CLR 运行时提供程序（.NET Framework 适用）
-            // 关键字与 EventPipe 路径一致：Exception + GC
-            // Microsoft-Windows-DotNETRuntime 提供程序 GUID
+            // 启用 .NET CLR 运行时提供程序
             // {E13C0D23-CCBC-4E12-931B-D9CC2EEE27E4}
             var clrProviderGuid = new Guid("e13c0d23-ccbc-4e12-931b-d9cc2eee27e4");
             _etwSession.EnableProvider(
@@ -145,7 +190,6 @@ public sealed class DiagnosticClientHelper : IDisposable
 
             IsListening = true;
 
-            // ETW 是阻塞式处理的 —— 在当前线程上 Process()，所以需要后台线程
             _listenTask = Task.Run(() =>
             {
                 using var source = _etwSession.Source;
@@ -164,44 +208,14 @@ public sealed class DiagnosticClientHelper : IDisposable
         }
     }
 
-    // ════════════════════════════════════════════════════════════
-    // 停止 & 清理
-    // ════════════════════════════════════════════════════════════
+    #endregion
 
-    public void StopListening()
-    {
-        if (!IsListening)
-            return;
+    #region Event Processing
 
-        _cts.Cancel();
-
-        try { _eventPipeSession?.Stop(); } catch { }
-        try { _etwSession?.Stop(); } catch { }
-
-        _odsMonitor?.Dispose();
-        _odsMonitor = null;
-
-        _eventPipeSession?.Dispose();
-        _eventPipeSession = null;
-        _etwSession?.Dispose();
-        _etwSession = null;
-
-        IsListening = false;
-        _onOutput($"[Detached from PID {_processId}]\n");
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        StopListening();
-        _cts.Dispose();
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // 事件处理（EventPipe / ETW 共享）
-    // ════════════════════════════════════════════════════════════
-
+    /// <summary>
+    /// 处理诊断事件：格式化时间戳 + 负载，输出到日志。
+    /// 跳过 CLR 运行时噪音事件（GC、JIT、加载等），仅保留用户关心的异常和 EventSource 日志。
+    /// </summary>
     private void OnEvent(TraceEvent evt)
     {
         var timestamp = evt.TimeStamp.ToString("HH:mm:ss.fff");
@@ -216,8 +230,7 @@ public sealed class DiagnosticClientHelper : IDisposable
             return;
         }
 
-        // 跳过 CLR 运行时及 Rundown 事件（GC、JIT、加载等噪音）
-        // 注意：Rundown provider 名称是 Microsoft-Windows-DotNETRuntimeRundown
+        // 跳过 CLR 运行时及 Rundown 事件噪音
         if (provider == "Microsoft-Windows-DotNETRuntime" ||
             provider == "Microsoft-Windows-DotNETRuntimeRundown")
             return;
@@ -225,6 +238,9 @@ public sealed class DiagnosticClientHelper : IDisposable
         _onOutput($"[{timestamp}] [{provider}/{eventName}] {payload}\n");
     }
 
+    /// <summary>
+    /// 将事件的 Payload 格式化为 "name=value, name=value" 字符串。
+    /// </summary>
     private static string FormatPayload(TraceEvent evt)
     {
         var names = evt.PayloadNames;
@@ -240,14 +256,15 @@ public sealed class DiagnosticClientHelper : IDisposable
         return string.Join(", ", parts);
     }
 
+    #endregion
+
     [Flags]
     private enum ClrEventKeywords : long
     {
         None      = 0,
         GC        = 0x1,
         Exception = 0x8000,
-        /// <summary>所有 CLR 运行时关键字 (Default = ~0)</summary>
+        /// <summary>所有 CLR 运行时关键字。</summary>
         All       = -1,
     }
 }
-

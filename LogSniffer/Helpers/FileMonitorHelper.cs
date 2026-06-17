@@ -17,16 +17,28 @@ public sealed class FileMonitorHelper : IDisposable
     private FileSystemWatcher? _watcher;
     private System.Timers.Timer? _pollTimer;
     private long _lastPosition;
-    private int _readGate; // 0 = idle, 1 = reading (interlocked)
+    private int _readGate;
     private readonly CancellationTokenSource _cts = new();
     private bool _disposed;
 
     /// <summary>轮询间隔 (毫秒)，纯兜底机制。</summary>
     private const int PollIntervalMs = 2000;
 
+    /// <summary>
+    /// 是否正在监控文件。
+    /// </summary>
     public bool IsMonitoring { get; private set; }
+
+    /// <summary>
+    /// 当前监控的文件完整路径。
+    /// </summary>
     public string FilePath => _filePath;
 
+    /// <summary>
+    /// 初始化文件监控器。
+    /// </summary>
+    /// <param name="filePath">要监控的日志文件路径。</param>
+    /// <param name="onOutput">输出回调，每次读到新内容时调用。</param>
     public FileMonitorHelper(string filePath, Action<string> onOutput)
     {
         _filePath = Path.GetFullPath(filePath);
@@ -36,6 +48,9 @@ public sealed class FileMonitorHelper : IDisposable
                      ?? throw new ArgumentException("Cannot determine directory from file path.");
     }
 
+    /// <summary>
+    /// 启动文件监控：先读取现有内容，再通过 FileSystemWatcher + 轮询监听增量。
+    /// </summary>
     public void Start()
     {
         if (_disposed)
@@ -51,10 +66,8 @@ public sealed class FileMonitorHelper : IDisposable
 
         try
         {
-            // ── 1. 读取现有内容 ──
             ReadInitialContent();
 
-            // ── 2. 启动 FileSystemWatcher (事件驱动主路径) ──
             _watcher = new FileSystemWatcher(_directory, _fileName)
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
@@ -71,7 +84,6 @@ public sealed class FileMonitorHelper : IDisposable
             _watcher.EnableRaisingEvents = true;
             IsMonitoring = true;
 
-            // ── 3. 低频轮询定时器 (纯兜底，FileSystemWatcher 漏事件时补偿) ──
             _pollTimer = new System.Timers.Timer(PollIntervalMs);
             _pollTimer.AutoReset = true;
             _pollTimer.Elapsed += (_, _) => TriggerRead();
@@ -79,7 +91,7 @@ public sealed class FileMonitorHelper : IDisposable
 
             _onOutput($"[FileMonitor] Monitoring changes...\n");
 
-            // ── 4. 追赶读取：弥补初始读取与 watcher 启动之间的竞态窗口 ──
+            // 追赶读取：弥补初始读取与 watcher 启动之间的竞态窗口
             TriggerRead();
         }
         catch (Exception ex)
@@ -89,10 +101,56 @@ public sealed class FileMonitorHelper : IDisposable
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // 初始读取
-    // ════════════════════════════════════════════════════════════════
+    /// <summary>
+    /// 停止文件监控，释放 Watcher 和定时器。
+    /// </summary>
+    public void Stop()
+    {
+        if (!IsMonitoring)
+            return;
 
+        IsMonitoring = false;
+
+        if (_pollTimer is not null)
+        {
+            _pollTimer.Stop();
+            _pollTimer.Dispose();
+            _pollTimer = null;
+        }
+
+        if (_watcher is not null)
+        {
+            _watcher.EnableRaisingEvents = false;
+            _watcher.Changed -= OnFileChanged;
+            _watcher.Created -= OnFileChanged;
+            _watcher.Deleted -= OnFileDeleted;
+            _watcher.Renamed -= OnFileRenamed;
+            _watcher.Error -= OnWatcherError;
+            _watcher.Dispose();
+            _watcher = null;
+        }
+
+        _onOutput($"[FileMonitor] Stopped monitoring: {_filePath}\n");
+    }
+
+    /// <summary>
+    /// 释放所有资源。
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        Stop();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+    #region Initial Read
+
+    /// <summary>
+    /// 读取文件末尾最多 1 MB 的内容作为初始显示。
+    /// </summary>
     private void ReadInitialContent()
     {
         var fileInfo = new FileInfo(_filePath);
@@ -139,13 +197,12 @@ public sealed class FileMonitorHelper : IDisposable
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // 事件处理 (FSWatcher / 轮询统一入口)
-    // ════════════════════════════════════════════════════════════════
+    #endregion
+
+    #region FSWatcher Events
 
     /// <summary>
-    /// FileSystemWatcher 事件 → 立即触发读取。
-    /// 不做去重/防抖——如果文件没有新内容，ReadIncrementalContent 会快速返回。
+    /// FileSystemWatcher 事件 → 立即触发增量读取。
     /// </summary>
     private void OnFileChanged(object sender, FileSystemEventArgs e)
     {
@@ -156,34 +213,45 @@ public sealed class FileMonitorHelper : IDisposable
         TriggerRead();
     }
 
+    /// <summary>
+    /// 文件被删除时停止监控。
+    /// </summary>
     private void OnFileDeleted(object sender, FileSystemEventArgs e)
     {
         _onOutput($"[FileMonitor] File deleted: {_filePath}\n");
         Stop();
     }
 
+    /// <summary>
+    /// 文件被重命名时停止监控。
+    /// </summary>
     private void OnFileRenamed(object sender, RenamedEventArgs e)
     {
         _onOutput($"[FileMonitor] File renamed: {_filePath}\n");
         Stop();
     }
 
+    /// <summary>
+    /// Watcher 内部缓冲区溢出时不停止，轮询定时器会兜底。
+    /// </summary>
     private void OnWatcherError(object sender, ErrorEventArgs e)
     {
-        // 缓冲区溢出——不停止，轮询定时器会兜底
         _onOutput($"[FileMonitor] Watcher notice (polling fallback active): {e.GetException().Message}\n");
     }
 
+    #endregion
+
+    #region Incremental Read
+
     /// <summary>
     /// 触发一次增量读取。使用 interlocked gate 避免重复线程堆积。
-    /// 多个并发调用只会有第一个真正执行；后续调用发现 _lastPosition 已更新则立即返回。
+    /// 多个并发调用只会有第一个真正执行。
     /// </summary>
     private void TriggerRead()
     {
         if (_disposed || !IsMonitoring)
             return;
 
-        // 轻量级 gate：0→1 成功则执行，已经是 1 则跳过（说明已有线程在处理）
         if (Interlocked.CompareExchange(ref _readGate, 1, 0) != 0)
             return;
 
@@ -200,10 +268,10 @@ public sealed class FileMonitorHelper : IDisposable
         });
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // 增量读取
-    // ════════════════════════════════════════════════════════════════
-
+    /// <summary>
+    /// 从文件当前位置读取新增内容并输出。
+    /// 通过 _lastPosition 实现天然去重。
+    /// </summary>
     private void ReadIncrementalContent()
     {
         if (_disposed || !IsMonitoring)
@@ -222,13 +290,10 @@ public sealed class FileMonitorHelper : IDisposable
             long currentLength = fileInfo.Length;
 
             if (currentLength < _lastPosition)
-            {
-                // 文件被截断
-                _lastPosition = 0;
-            }
+                _lastPosition = 0; // 文件被截断，从头开始
 
             if (currentLength <= _lastPosition)
-                return; // 没有新内容——这是天然的"去重"
+                return; // 没有新内容
 
             long bytesToRead = currentLength - _lastPosition;
             if (bytesToRead > 131_072)
@@ -258,46 +323,5 @@ public sealed class FileMonitorHelper : IDisposable
         }
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // 停止 & 清理
-    // ════════════════════════════════════════════════════════════════
-
-    public void Stop()
-    {
-        if (!IsMonitoring)
-            return;
-
-        IsMonitoring = false;
-
-        if (_pollTimer is not null)
-        {
-            _pollTimer.Stop();
-            _pollTimer.Dispose();
-            _pollTimer = null;
-        }
-
-        if (_watcher is not null)
-        {
-            _watcher.EnableRaisingEvents = false;
-            _watcher.Changed -= OnFileChanged;
-            _watcher.Created -= OnFileChanged;
-            _watcher.Deleted -= OnFileDeleted;
-            _watcher.Renamed -= OnFileRenamed;
-            _watcher.Error -= OnWatcherError;
-            _watcher.Dispose();
-            _watcher = null;
-        }
-
-        _onOutput($"[FileMonitor] Stopped monitoring: {_filePath}\n");
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-        _disposed = true;
-        Stop();
-        _cts.Cancel();
-        _cts.Dispose();
-    }
+    #endregion
 }

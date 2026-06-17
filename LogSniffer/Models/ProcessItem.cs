@@ -1,8 +1,15 @@
-﻿namespace LogSniffer.Models;
+namespace LogSniffer.Models;
 
 public class ProcessItem
 {
+    /// <summary>
+    /// 进程 ID。
+    /// </summary>
     public int Pid { get; set; }
+
+    /// <summary>
+    /// 进程名称。
+    /// </summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
@@ -14,13 +21,17 @@ public class ProcessItem
 }
 
 /// <summary>
-/// 进程的 .NET 运行时类型
+/// 进程的 .NET 运行时类型。
 /// </summary>
 public enum ProcessRuntime
 {
-    /// <summary>.NET Core / .NET 5+ (CoreCLR)</summary>
+    /// <summary>
+    /// .NET Core / .NET 5+ (CoreCLR)。
+    /// </summary>
     CoreCLR,
 
-    /// <summary>.NET Framework (CLR)</summary>
+    /// <summary>
+    /// .NET Framework (CLR)。
+    /// </summary>
     Framework,
 }

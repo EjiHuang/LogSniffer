@@ -16,24 +16,25 @@ internal class Program
 {
     private readonly static MainViewModel _viewModel = new();
 
-    // UI 控件引用
+    #region UI Controls
+
     private static MultiLineTextBox? _logTextBox;
     private static TextBlock? _statusText;
     private static Button? _attachButton;
     private static Button? _launchButton;
     private static Button? _openFileButton;
     private static CheckBox? _autoScrollCheckBox;
-    private static bool _autoScroll = true;
+
+    #endregion
+
+    #region Entry Point
 
     static void Main(string[] args)
     {
-        // 注册平台后端
         PlatformBackendRegister();
 
-        // 启动时自动刷新进程列表
         _viewModel.RefreshProcessList();
 
-        // 创建窗口
         var window = new Window()
             .OnBuild(w =>
             {
@@ -48,95 +49,95 @@ internal class Program
                 var logViewer = BuildLogViewer().Margin(0, 10);
                 mainPanel.Children(topBar, statusBar, logViewer);
 
-                // 监听用户手动滚动，同步 Auto-scroll 复选框状态
                 HookScrollBarTracking();
             });
 
-        // 创建程序并启动窗口
         Application
             .Create()
             .UseTheme(ThemeVariant.Dark)
             .Run(window);
     }
 
-    /// <summary>
-    /// 构建状态栏
-    /// </summary>
-    private static Border BuildStatusBar()
-    {
-        var border = new Border().Margin(5, 0);
-        _statusText = new TextBlock().Text("Ready");
+    #endregion
 
-        border.Child = _statusText;
-        return border;
+    #region Platform Backend
+
+    /// <summary>
+    /// 注册当前操作系统对应的平台后端和渲染后端。
+    /// </summary>
+    private static void PlatformBackendRegister()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Win32Platform.Register();
+            GdiBackend.Register();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            MacOSPlatform.Register();
+            MewVGMacOSBackend.Register();
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            X11Platform.Register();
+            MewVGX11Backend.Register();
+        }
     }
 
-    /// <summary>
-    /// 构建日志查看器
-    /// </summary>
-    private static Border BuildLogViewer()
-    {
-        var border = new Border();
-        _logTextBox = new MultiLineTextBox()
-            .IsReadOnly(true)
-            .Wrap(true);
+    #endregion
 
-        border.Child = _logTextBox;
-        return border;
-    }
+    #region Panel Build
 
     /// <summary>
-    /// 构建顶部工具栏
+    /// 构建顶部工具栏：功能按钮行 + 过滤输入行。
+    /// 按钮行和过滤行包裹在垂直 StackPanel 中，DockTop 到主面板。
     /// </summary>
     private static StackPanel BuildTopBar()
     {
-        var stackPanel = new StackPanel().Orientation(Orientation.Horizontal);
+        // ── Row 1: 功能按钮 ──
+        var buttonRow = new StackPanel().Orientation(Orientation.Horizontal);
         var processesComboBox = new ComboBox().Size(250, double.NaN).Margin(5, 0);
         var refreshButton = new Button().Margin(5, 0).Content("Refresh");
         _attachButton = new Button().Margin(5, 0).Content("Attach");
         _launchButton = new Button().Margin(5, 0).Content("Launch");
         _autoScrollCheckBox = new CheckBox().Margin(5, 0)
-            .IsChecked(true)
             .Content("Auto-scroll");
 
-        _autoScrollCheckBox.OnCheckedChanged(isChecked =>
+        _autoScrollCheckBox.BindIsChecked(_viewModel.AutoScroll);
+
+        // Auto-scroll 勾选时立即滚动到底部
+        _viewModel.AutoScroll.Changed += () =>
         {
-            _autoScroll = isChecked;
-            if (isChecked && _logTextBox is not null)
+            if (_viewModel.AutoScroll.Value && _logTextBox is not null)
             {
                 _logTextBox.CaretPosition = int.MaxValue;
                 _logTextBox.ScrollToCaret();
             }
-        });
+        };
 
-        // 绑定数据源
         processesComboBox.ItemsSource(_viewModel.ProcessListView);
-
-        // ComboBox 选中项变更
         processesComboBox.OnSelectionChanged(args =>
         {
             if (processesComboBox.SelectedItem is ProcessItem item)
-            {
                 _viewModel.SelectedProcess = item;
-            }
         });
 
-        // 刷新按钮
+        // 刷新进程列表
         refreshButton.OnClick(() =>
         {
             _viewModel.RefreshProcessList();
             FlushLogToTextBox();
         });
 
-        // 打开文件按钮: 打开并监控日志文件
+        // 打开 / 关闭文件监控
         _openFileButton = new Button().Margin(5, 0).Content("Open File");
         _openFileButton.OnClick(() =>
         {
             if (_viewModel.IsFileMonitoring)
             {
                 _viewModel.StopFileMonitor();
+                _viewModel.StatusText.Value = "Ready";
                 UpdateButtonStates();
-                UpdateStatusText();
                 FlushLogToTextBox();
                 return;
             }
@@ -153,11 +154,10 @@ internal class Program
 
             _viewModel.OpenFile(files[0]);
             UpdateButtonStates();
-            UpdateStatusText();
             FlushLogToTextBox();
         });
 
-        // 清空日志按钮
+        // 清空日志
         var clearButton = new Button().Margin(5, 0).Content("Clear");
         clearButton.OnClick(() =>
         {
@@ -166,23 +166,21 @@ internal class Program
                 _logTextBox.Text = "";
         });
 
-        // 附加按钮：仅在未启动外部程序时可用
+        // 附加 / 停止附加
         _attachButton.OnClick(() =>
         {
             _viewModel.ToggleAttach();
             UpdateButtonStates();
-            UpdateStatusText();
             FlushLogToTextBox();
         });
 
-        // 启动按钮：仅在未附加进程时可用
+        // 启动 / 停止外部进程
         _launchButton.OnClick(() =>
         {
             if (_viewModel.IsLauncherRunning)
             {
                 _viewModel.DetachFromProcess();
                 UpdateButtonStates();
-                UpdateStatusText();
                 FlushLogToTextBox();
                 return;
             }
@@ -199,25 +197,21 @@ internal class Program
 
             _viewModel.LaunchProcess(files[0]);
             UpdateButtonStates();
-            UpdateStatusText();
             FlushLogToTextBox();
         });
 
-        // 订阅日志更新：通过调度器实时投递到 UI 线程，同时刷新按钮和状态栏。
-        // 注：不在 OnBuild 中捕获 Application.Current.Dispatcher（此时可能尚未初始化），
-        // 改为在事件触发时延迟访问——此时应用已完全运行。
+        // 订阅日志更新 → 刷新 UI + 按钮状态（调度到 UI 线程）
         _viewModel.LogUpdated += () =>
         {
             Application.Current.Dispatcher?.BeginInvoke(() =>
             {
                 FlushLogToTextBox();
                 UpdateButtonStates();
-                UpdateStatusText();
             });
         };
 
-        stackPanel.Children(
-            new TextBlock { Text = "Processes:" },
+        buttonRow.Children(
+            new TextBlock { Text = "Processes:", Width = 70 },
             processesComboBox,
             refreshButton,
             _attachButton,
@@ -226,12 +220,63 @@ internal class Program
             clearButton,
             _autoScrollCheckBox);
 
-        return stackPanel;
+        // ── Row 2: 过滤输入 ──
+        var filterRow = new DockPanel().LastChildFill(true).Margin(0, 10, 0, 0);
+        var filterLabel = new TextBlock { Text = "Filter:", Width = 70 };
+        var filterTextBox = new TextBox().Margin(5, 0, 0, 0).Size(double.NaN, double.NaN);
+        var regexCheckBox = new CheckBox().Margin(5, 0, 0, 0).Content("Regex").DockRight();
+
+        filterTextBox.BindText(_viewModel.FilterText);
+        regexCheckBox.BindIsChecked(_viewModel.IsRegex);
+
+        filterRow.Children(filterLabel, regexCheckBox, filterTextBox);
+
+        // 过滤条件变更 → 重建日志显示
+        _viewModel.FilterChanged += () =>
+        {
+            Application.Current.Dispatcher?.BeginInvoke(() => RebuildLogDisplay());
+        };
+
+        // ── 组装 ──
+        var topBarContainer = new StackPanel();
+        topBarContainer.Children(buttonRow, filterRow);
+        return topBarContainer;
     }
 
     /// <summary>
+    /// 构建状态栏，通过 ObservableValue 绑定自动更新文本。
+    /// </summary>
+    private static Border BuildStatusBar()
+    {
+        var border = new Border().Margin(5, 0);
+        _statusText = new TextBlock();
+        _statusText.BindText(_viewModel.StatusText);
+
+        border.Child = _statusText;
+        return border;
+    }
+
+    /// <summary>
+    /// 构建日志查看器（只读多行文本框）。
+    /// </summary>
+    private static Border BuildLogViewer()
+    {
+        var border = new Border();
+        _logTextBox = new MultiLineTextBox()
+            .IsReadOnly(true)
+            .Wrap(true);
+
+        border.Child = _logTextBox;
+        return border;
+    }
+
+    #endregion
+
+    #region Log Display
+
+    /// <summary>
     /// 将 ViewModel 中的增量日志追加到 UI 控件。
-    /// 只有启用了自动滚动且用户没有手动向上滚动时才滚动到底部。
+    /// 仅当 AutoScroll 开启且用户在底部时自动滚动。
     /// </summary>
     private static void FlushLogToTextBox()
     {
@@ -239,12 +284,36 @@ internal class Program
         if (pending is null || _logTextBox is null)
             return;
 
-        bool doScroll = _autoScroll && IsTextBoxAtBottom();
+        bool doScroll = _viewModel.AutoScroll.Value && IsTextBoxAtBottom();
         _logTextBox.AppendText(pending, scrollToCaret: doScroll);
     }
 
     /// <summary>
-    /// 监听垂直滚动条的手动滚动，自动同步 Auto-scroll 复选框状态。
+    /// 过滤条件变化时从全量缓冲区重建整个日志显示。
+    /// </summary>
+    private static void RebuildLogDisplay()
+    {
+        if (_logTextBox is null)
+            return;
+
+        _viewModel.DrainPendingLogs();
+        var filtered = _viewModel.GetFilteredAllLogs();
+        _logTextBox.Text = filtered ?? "";
+
+        if (_viewModel.AutoScroll.Value)
+        {
+            _logTextBox.CaretPosition = int.MaxValue;
+            _logTextBox.ScrollToCaret();
+        }
+    }
+
+    #endregion
+
+    #region Scrollbar
+
+    /// <summary>
+    /// 监听垂直滚动条的手动滚动，同步 AutoScroll 状态。
+    /// ObservableValue 绑定自动将变更传播到 CheckBox。
     /// </summary>
     private static void HookScrollBarTracking()
     {
@@ -253,14 +322,13 @@ internal class Program
             vBar.ValueChanged += value =>
             {
                 bool atBottom = value >= vBar.Maximum - 0.5;
-                _autoScroll = atBottom;
-                _autoScrollCheckBox?.IsChecked(atBottom);
+                _viewModel.AutoScroll.Value = atBottom;
             };
         }
     }
 
     /// <summary>
-    /// 检查 MultiLineTextBox 是否滚动到了最底部。
+    /// 检查 MultiLineTextBox 是否已滚动到最底部。
     /// </summary>
     private static bool IsTextBoxAtBottom()
     {
@@ -272,7 +340,7 @@ internal class Program
     }
 
     /// <summary>
-    /// 通过视觉树找到 MultiLineTextBox 内部的垂直 ScrollBar。
+    /// 通过视觉树查找 MultiLineTextBox 内部的垂直 ScrollBar。
     /// </summary>
     private static ScrollBar? FindVerticalScrollBar(Element element)
     {
@@ -284,18 +352,22 @@ internal class Program
                 if (child is ScrollBar bar && bar.Orientation == Orientation.Vertical)
                 {
                     result = bar;
-                    return false; // 找到了，停止遍历
+                    return false;
                 }
-                return true; // 继续查找
+                return true;
             });
             return result;
         }
         return null;
     }
 
+    #endregion
+
+    #region Button State
+
     /// <summary>
-    /// 更新按钮状态：三个按钮互斥——同一时间只能有一个活跃。
-    /// 各自的 Stop 按钮仅停止自己启动的操作。
+    /// 更新按钮状态：三个操作按钮（Attach / Launch / Open File）互斥，
+    /// 同一时间只能有一个活跃。各自的按钮在活跃时显示 "Stop"。
     /// </summary>
     private static void UpdateButtonStates()
     {
@@ -322,35 +394,5 @@ internal class Program
         }
     }
 
-    /// <summary>
-    /// 更新状态栏文本
-    /// </summary>
-    private static void UpdateStatusText()
-    {
-        if (_statusText is null)
-            return;
-        _statusText.Text = _viewModel.StatusText;
-    }
-
-    /// <summary>
-    /// 平台后端注册
-    /// </summary>
-    private static void PlatformBackendRegister()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            Win32Platform.Register();
-            GdiBackend.Register();
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            MacOSPlatform.Register();
-            MewVGMacOSBackend.Register();
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            X11Platform.Register();
-            MewVGX11Backend.Register();
-        }
-    }
+    #endregion
 }

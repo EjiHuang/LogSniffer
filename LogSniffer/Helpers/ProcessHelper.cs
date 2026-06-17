@@ -15,12 +15,13 @@ namespace LogSniffer.Helpers;
 [SupportedOSPlatform("windows")]
 public static class ProcessHelper
 {
-    // ════════════════════════════════════════════════════════════
-    // .NET Core 检测：诊断管道
-    // ════════════════════════════════════════════════════════════
+    #region .NET Core Detection
 
     private const string DiagnosticPipePrefix = "dotnet-diagnostic-";
 
+    /// <summary>
+    /// 通过诊断命名管道枚举运行中的 .NET Core 进程。
+    /// </summary>
     private static HashSet<int> GetCoreClrProcessIds()
     {
         var pidSet = new HashSet<int>();
@@ -41,9 +42,9 @@ public static class ProcessHelper
         return pidSet;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // .NET Framework 检测：COM ICLRMetaHost（dnSpy 的做法）
-    // ════════════════════════════════════════════════════════════
+    #endregion
+
+    #region .NET Framework Detection (COM ICLRMetaHost)
 
     // CLSID_CLRMetaHost  : {9280188D-0E8E-4867-B30C-7FA83884E8DE}
     // IID_ICLRMetaHost   : {D332DB9E-B9B3-4125-8207-A14884F53216}
@@ -98,18 +99,16 @@ public static class ProcessHelper
     private static extern bool CloseHandle(IntPtr hObject);
 
     /// <summary>
-    /// 使用 ICLRMetaHost 检测 .NET Framework CLR。
+    /// 使用 ICLRMetaHost 检测正在运行 .NET Framework CLR 的进程。
     /// 在 NativeAOT 下自动跳过（COM Interop 不可用）。
     /// </summary>
     private static HashSet<int> GetFrameworkClrProcessIds()
     {
         var pidSet = new HashSet<int>();
 
-        // NativeAOT 下 COM Interop 不可用，直接返回空集合
         if (!RuntimeFeature.IsDynamicCodeSupported)
             return pidSet;
 
-        // 创建 ICLRMetaHost 实例
         var clsid = ClsidClrMetaHost;
         var iid = IidIClrMetaHost;
         int hr = CLRCreateInstance(ref clsid, ref iid, out object obj);
@@ -157,19 +156,18 @@ public static class ProcessHelper
         return pidSet;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // 公共 API
-    // ════════════════════════════════════════════════════════════
+    #endregion
+
+    #region Public API
 
     /// <summary>
-    /// 获取当前运行的 .NET 进程列表（同时覆盖 .NET Framework 和 .NET Core）
+    /// 获取当前运行的 .NET 进程列表（同时覆盖 .NET Framework 和 .NET Core）。
     /// </summary>
     public static List<ProcessItem> GetDotNetProcesses()
     {
         var coreClrPids = GetCoreClrProcessIds();
         var frameworkPids = GetFrameworkClrProcessIds();
 
-        // 合并 Framework CLR 和 CoreCLR 的 PID
         var allPids = new HashSet<int>(frameworkPids);
         allPids.UnionWith(coreClrPids);
 
@@ -196,4 +194,6 @@ public static class ProcessHelper
 
         return processes;
     }
+
+    #endregion
 }
