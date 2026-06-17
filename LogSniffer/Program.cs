@@ -244,15 +244,21 @@ internal class Program
     }
 
     /// <summary>
-    /// 构建状态栏，通过 ObservableValue 绑定自动更新文本。
+    /// 构建状态栏：左侧显示状态信息，右侧显示行数。
     /// </summary>
     private static Border BuildStatusBar()
     {
         var border = new Border().Margin(5, 0);
+        var panel = new DockPanel().LastChildFill(true);
+
+        var lineCountText = new TextBlock().DockRight();
+        lineCountText.BindText(_viewModel.LineCount, count => $"Lines: {count}");
+
         _statusText = new TextBlock();
         _statusText.BindText(_viewModel.StatusText);
 
-        border.Child = _statusText;
+        panel.Children(lineCountText, _statusText);
+        border.Child = panel;
         return border;
     }
 

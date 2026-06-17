@@ -79,6 +79,11 @@ public class MainViewModel
     /// </summary>
     public ObservableValue<string> StatusText { get; } = new("Ready");
 
+    /// <summary>
+    /// 当前日志总行数。
+    /// </summary>
+    public ObservableValue<int> LineCount { get; } = new(0);
+
     #endregion
 
     #region Private Fields
@@ -304,6 +309,7 @@ public class MainViewModel
             _pendingLogs.Clear();
         lock (_allLogs)
             _allLogs.Clear();
+        LineCount.Value = 0;
     }
 
     /// <summary>
@@ -315,6 +321,15 @@ public class MainViewModel
             _pendingLogs.Append(text);
         lock (_allLogs)
             _allLogs.Append(text);
+
+        int newLines = 0;
+        foreach (char c in text)
+        {
+            if (c == '\n')
+                newLines++;
+        }
+        if (newLines > 0)
+            LineCount.Value += newLines;
 
         LogUpdated?.Invoke();
     }

@@ -9,6 +9,10 @@ A Windows desktop tool for viewing .NET runtime diagnostics, process output, and
 - **Tail log files** — open a `.log` or `.txt` file and watch new lines appear in real time.
 - **Auto-scroll** — stays at the bottom as new content arrives; pauses when you scroll up.
 
+## Screenshot
+
+![LogSniffer Screenshot](Screenshot.png)
+
 ## Requirements
 
 - Windows 10+ (x64)
