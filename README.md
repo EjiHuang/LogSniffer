@@ -25,12 +25,14 @@ dotnet build
 dotnet build -c Release
 
 # Standalone executable (NativeAOT)
-dotnet publish -c Release -r win-x64
+.\publish-win-x64.bat           # default: Direct2D backend
+.\publish-win-x64.bat Gdi       # GDI backend
+.\publish-win-x64.bat MewVG     # MewVG backend
 ```
 
 ## NativeAOT limitations
 
-When published with NativeAOT (`dotnet publish -c Release -r win-x64`), the following features are **not available**:
+When published with NativeAOT, the following features are **not available**:
 
 - **Attach to .NET Framework processes (ETW)** — explicitly unsupported. The ETW session path requires `System.Reflection.Emit` and COM interop, which are incompatible with NativeAOT. A `NotSupportedException` is thrown if you attempt to attach to a .NET Framework process.
 - **Attach to .NET Core processes (EventPipe)** — may have reduced functionality. The underlying `TraceEvent` library relies on dynamic code generation for event parsing; some event types may produce incomplete or missing output.
