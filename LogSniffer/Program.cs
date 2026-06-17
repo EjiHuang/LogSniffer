@@ -290,6 +290,8 @@ internal class Program
 
     /// <summary>
     /// 过滤条件变化时从全量缓冲区重建整个日志显示。
+    /// 设 Text 会导致滚动条归零从而触发 AutoScroll 关闭，
+    /// 因此在操作完成后恢复 AutoScroll 原值。
     /// </summary>
     private static void RebuildLogDisplay()
     {
@@ -298,12 +300,14 @@ internal class Program
 
         _viewModel.DrainPendingLogs();
         var filtered = _viewModel.GetFilteredAllLogs();
-        _logTextBox.Text = filtered ?? "";
+        bool wasAutoScroll = _viewModel.AutoScroll.Value;
 
-        if (_viewModel.AutoScroll.Value)
+        _logTextBox.Text = filtered ?? "";
+        if (wasAutoScroll)
         {
             _logTextBox.CaretPosition = int.MaxValue;
             _logTextBox.ScrollToCaret();
+            _viewModel.AutoScroll.Value = true;
         }
     }
 
@@ -312,8 +316,9 @@ internal class Program
     #region Scrollbar
 
     /// <summary>
-    /// 监听垂直滚动条的手动滚动，同步 AutoScroll 状态。
-    /// ObservableValue 绑定自动将变更传播到 CheckBox。
+    /// 监听垂直滚动条的<em>手动</em>滚动：
+    /// 用户滚动离开底部 → 关闭自动滚动；
+    /// 用户滚动到底部 → 不重新开启（仅能通过勾选复选框开启）。
     /// </summary>
     private static void HookScrollBarTracking()
     {
@@ -321,8 +326,9 @@ internal class Program
         {
             vBar.ValueChanged += value =>
             {
-                bool atBottom = value >= vBar.Maximum - 0.5;
-                _viewModel.AutoScroll.Value = atBottom;
+                bool atBottom = value >= vBar.Maximum - 10;
+                if (value > 0 && !atBottom)
+                    _viewModel.AutoScroll.Value = false;
             };
         }
     }
