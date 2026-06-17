@@ -290,7 +290,7 @@ internal class Program
         if (pending is null || _logTextBox is null)
             return;
 
-        bool doScroll = _viewModel.AutoScroll.Value && IsTextBoxAtBottom();
+        bool doScroll = _viewModel.AutoScroll.Value;
         _logTextBox.AppendText(pending, scrollToCaret: doScroll);
     }
 
