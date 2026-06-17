@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Aprillz.MewUI" Version="0.15.2" />
+		<PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.532401" />
+		<PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.20" />
+	</ItemGroup>
+
+	<!-- NativeAOT: 保留 TraceEvent 全部代码（内部使用反射，裁剪会导致运行时崩溃） -->
+	<ItemGroup>
+		<TrimmerRootAssembly Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+	</ItemGroup>
+
+</Project>
