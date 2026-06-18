@@ -60,6 +60,11 @@ public class MainViewModel
     #region Observable Values
 
     /// <summary>
+    /// 选中进程在 ProcessItems 中的索引，绑定到 ComboBox 的 SelectedIndex。
+    /// </summary>
+    public ObservableValue<int> SelectedProcessIndex { get; } = new(0);
+
+    /// <summary>
     /// 日志过滤文本（大小写不敏感），空字符串表示不过滤。
     /// </summary>
     public ObservableValue<string> FilterText { get; } = new("");
@@ -118,6 +123,14 @@ public class MainViewModel
         ProcessListView = ItemsView.Create(
             ProcessItems,
             item => $"[{item.Runtime}] {item.Name}:{item.Pid}");
+
+        SelectedProcessIndex.Subscribe(() =>
+        {
+            if (SelectedProcessIndex.Value >= 0 && SelectedProcessIndex.Value < ProcessItems.Count)
+                SelectedProcess = ProcessItems[SelectedProcessIndex.Value];
+            else
+                SelectedProcess = null;
+        });
 
         // 过滤条件变更 → 清空正则缓存 + 通知 View 重建显示
         FilterText.Changed += () =>

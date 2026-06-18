@@ -115,12 +115,9 @@ internal class Program
             }
         };
 
+        // 进程列表绑定
         processesComboBox.ItemsSource(_viewModel.ProcessListView);
-        processesComboBox.OnSelectionChanged(args =>
-        {
-            if (processesComboBox.SelectedItem is ProcessItem item)
-                _viewModel.SelectedProcess = item;
-        });
+        processesComboBox.BindSelectedIndex(_viewModel.SelectedProcessIndex);
 
         // 刷新进程列表
         refreshButton.OnClick(() =>
