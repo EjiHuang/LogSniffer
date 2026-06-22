@@ -153,6 +153,7 @@ public class MainViewModel
     /// <summary>
     /// 刷新进程列表（扫描所有运行中的 .NET 进程）。
     /// </summary>
+    /// <param name="isFirstTime">是否为首次刷新</param>
     internal void RefreshProcessList()
     {
         var processes = ProcessHelper.GetDotNetProcesses();
@@ -162,6 +163,13 @@ public class MainViewModel
             ProcessItems.Add(proc);
 
         ProcessListView.Invalidate();
+
+        // 首次刷新时如果有进程则默认选中第一个
+        if (ProcessItems.Count > 0)
+        {
+            SelectedProcessIndex.Value = 0;
+            SelectedProcess = ProcessItems[0];
+        }
     }
 
     #endregion

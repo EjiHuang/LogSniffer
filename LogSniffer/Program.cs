@@ -105,16 +105,6 @@ internal class Program
 
         _autoScrollCheckBox.BindIsChecked(_viewModel.AutoScroll);
 
-        // Auto-scroll 勾选时立即滚动到底部
-        _viewModel.AutoScroll.Changed += () =>
-        {
-            if (_viewModel.AutoScroll.Value && _logTextBox is not null)
-            {
-                _logTextBox.CaretPosition = int.MaxValue;
-                _logTextBox.ScrollToCaret();
-            }
-        };
-
         // 进程列表绑定
         processesComboBox.ItemsSource(_viewModel.ProcessListView);
         processesComboBox.BindSelectedIndex(_viewModel.SelectedProcessIndex);
@@ -308,7 +298,6 @@ internal class Program
         _logTextBox.Text = filtered ?? "";
         if (wasAutoScroll)
         {
-            _logTextBox.CaretPosition = int.MaxValue;
             _logTextBox.ScrollToCaret();
             _viewModel.AutoScroll.Value = true;
         }
@@ -327,11 +316,16 @@ internal class Program
     {
         if (FindVerticalScrollBar(_logTextBox!) is ScrollBar vBar)
         {
+            double oldValue = vBar.Value;
             vBar.ValueChanged += value =>
             {
-                bool atBottom = value >= vBar.Maximum - 10;
-                if (value > 0 && !atBottom)
+                // 往上滚动离开底部 → 关闭自动滚动
+                if (oldValue > value)
+                {
                     _viewModel.AutoScroll.Value = false;
+                }
+
+                oldValue = value;
             };
         }
     }
